@@ -68,14 +68,14 @@ class CUPIClient:
 
     def get_call_handlers(self) -> list[dict]:
         data = self.get("/handlers/callhandlers")
-        handlers = data.get("CallHandler", [])
+        handlers = data.get("Callhandler", [])
         if isinstance(handlers, dict):
             handlers = [handlers]
         return handlers
 
     def get_menu_entries(self, object_id: str) -> list[dict]:
         data = self.get(f"/handlers/callhandlers/{object_id}/menuentries")
-        entries = data.get("MenuItem", [])
+        entries = data.get("MenuEntry", [])
         if isinstance(entries, dict):
             entries = [entries]
         return entries
