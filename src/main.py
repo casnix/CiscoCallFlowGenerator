@@ -123,6 +123,16 @@ def get_flow(
     password: str = Query(...),
     handler_oid: str = Query(...),
 ):
+    # Fetch extension for this handler (best-effort)
+    extension = ""
+    try:
+        edata = cupi_get(host, user, password, f"/handlers/callhandlers/{handler_oid}/extension")
+        exts = normalise_list(edata, "Extension", "extension")
+        if exts:
+            extension = exts[0].get("DtmfAccessId", "")
+    except Exception:
+        pass
+
     # Fetch menu entries
     data = cupi_get(host, user, password, f"/handlers/callhandlers/{handler_oid}/menuentries")
     entries = normalise_list(data, "MenuEntry", "MenuItem", "menuentry")
@@ -174,7 +184,7 @@ def get_flow(
         return (1, k)
 
     result.sort(key=key_sort)
-    return JSONResponse(result)
+    return JSONResponse({"extension": extension, "entries": result})
 
 
 # ---------------------------------------------------------------------------

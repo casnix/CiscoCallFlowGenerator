@@ -225,6 +225,7 @@ button.full { width: 100%; }
 }
 .root-node .name { font-size: 15px; font-weight: 600; color: #fff; }
 .root-node .sub  { font-size: 11px; color: rgba(255,255,255,.6); margin-top: 3px; font-family: var(--mono); }
+.root-node .sub.ext { color: rgba(255,255,255,.85); letter-spacing: 0.04em; }
 
 .v-line { width: 1px; height: 36px; background: var(--border2); }
 
@@ -469,9 +470,11 @@ async function loadFlow() {
     const data = await resp.json();
     if (!resp.ok) { showErr('err-handler', data.detail || 'Failed to load flow.'); return; }
 
-    const active = data.filter(e => e.action !== '0');
+    const entries = data.entries || data;
+    const extension = data.extension || '';
+    const active = entries.filter(e => e.action !== '0');
     qs('flow-meta').textContent = `${active.length} active key(s)`;
-    renderFlowDiagram(name, data);
+    renderFlowDiagram(name, entries, extension);
   } catch(e) {
     showErr('err-handler', 'Error loading flow data.');
   } finally {
@@ -486,14 +489,17 @@ function actionClass(code) {
   return 'ac-other';
 }
 
-function renderFlowDiagram(handlerName, entries) {
+function renderFlowDiagram(handlerName, entries, extension) {
   const diagram = qs('flow-diagram');
   diagram.innerHTML = '';
 
   // Root node
   const root = document.createElement('div');
   root.className = 'root-node';
-  root.innerHTML = `<div class="name">${esc(handlerName)}</div><div class="sub">call handler</div>`;
+  const extHtml = extension
+    ? `<div class="sub ext">ext&nbsp;${esc(extension)}</div>`
+    : `<div class="sub">call handler</div>`;
+  root.innerHTML = `<div class="name">${esc(handlerName)}</div>${extHtml}`;
   diagram.appendChild(root);
 
   const vline = document.createElement('div');
