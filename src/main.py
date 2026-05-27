@@ -123,13 +123,14 @@ def get_flow(
     password: str = Query(...),
     handler_oid: str = Query(...),
 ):
-    # Fetch extension for this handler (best-effort)
+    # Fetch the handler object to get DtmfAccessId (extension)
     extension = ""
     try:
-        edata = cupi_get(host, user, password, f"/handlers/callhandlers/{handler_oid}/extension")
-        exts = normalise_list(edata, "Extension", "extension")
-        if exts:
-            extension = exts[0].get("DtmfAccessId", "")
+        hdata = cupi_get(host, user, password, f"/handlers/callhandlers/{handler_oid}")
+        extension = hdata.get("DtmfAccessId", "")
+        if not extension:
+            nested = normalise_list(hdata, "Callhandler", "CallHandler")
+            extension = nested[0].get("DtmfAccessId", "") if nested else ""
     except Exception:
         pass
 
