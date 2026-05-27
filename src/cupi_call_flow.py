@@ -14,14 +14,18 @@ Requirements:
     pip install requests
 """
 
-import sys
-import json
-import urllib3
 import argparse
-import requests
-
+import json
+import sys
+import urllib3
 from getpass import getpass
 from pathlib import Path
+
+try:
+    import requests
+except ImportError:
+    print("ERROR: 'requests' library not found. Run: pip install requests")
+    sys.exit(1)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -33,15 +37,15 @@ ACTION_LABELS = {
     "4": "Restart greeting",
     "5": "Transfer to number",
     "6": "Go to conversation",
-    "7": "Hang up",
+    "7": "Transfer to alt ext",
 }
 
 COLORS_ANSI = {
     "1": "\033[92m",   # green  - take message
     "2": "\033[94m",   # blue   - go to handler
-    "5": "\033[93m",   # yellow - transfer
+    "5": "\033[93m",   # yellow - transfer to number
     "6": "\033[94m",   # blue   - go to conversation
-    "7": "\033[91m",   # red    - hang up
+    "7": "\033[93m",   # yellow - transfer to alt ext
     "reset": "\033[0m",
     "bold":  "\033[1m",
     "dim":   "\033[2m",
@@ -59,6 +63,7 @@ class CUPIClient:
         self.session.auth = (username, password)
         self.session.headers.update({"Accept": "application/json"})
         self.session.verify = False  # CUC typically uses a self-signed cert
+        self._handler_cache: dict[str, str] = {}  # OID -> DisplayName
 
     def get(self, path: str) -> dict:
         url = f"{self.base}{path}"
@@ -68,23 +73,48 @@ class CUPIClient:
 
     def get_call_handlers(self) -> list[dict]:
         data = self.get("/handlers/callhandlers")
-        handlers = data.get("Callhandler", [])
+        handlers = data.get("Callhandler", data.get("CallHandler", []))
         if isinstance(handlers, dict):
             handlers = [handlers]
+        # Populate cache while we have the full list
+        for h in handlers:
+            oid = h.get("ObjectId", "")
+            name = h.get("DisplayName", "")
+            if oid and name:
+                self._handler_cache[oid] = name
         return handlers
 
     def get_menu_entries(self, object_id: str) -> list[dict]:
         data = self.get(f"/handlers/callhandlers/{object_id}/menuentries")
-        entries = data.get("MenuEntry", [])
+        entries = data.get("MenuEntry", data.get("MenuItem", []))
         if isinstance(entries, dict):
             entries = [entries]
         return entries
+
+    def get_handler_name(self, object_id: str) -> str:
+        """Return DisplayName for a handler OID, using cache or a live lookup."""
+        if object_id in self._handler_cache:
+            return self._handler_cache[object_id]
+        try:
+            data = self.get(f"/handlers/callhandlers/{object_id}")
+            # Response may be the handler object directly or wrapped
+            if "DisplayName" in data:
+                name = data["DisplayName"]
+            else:
+                handler = data.get("Callhandler", data.get("CallHandler", {}))
+                if isinstance(handler, list):
+                    handler = handler[0] if handler else {}
+                name = handler.get("DisplayName", object_id)
+            self._handler_cache[object_id] = name
+            return name
+        except Exception:
+            return object_id  # fall back to OID if lookup fails
 
     def search_handler(self, name: str) -> list[dict]:
         import urllib.parse
         query = urllib.parse.quote(f"(DisplayName is {name})")
         data = self.get(f"/handlers/callhandlers?query={query}")
-        handlers = data.get("CallHandler", [])
+        handlers = data.get("Callhandler", data.get("CallHandler", []))
         if isinstance(handlers, dict):
             handlers = [handlers]
         return handlers
@@ -94,14 +124,13 @@ class CUPIClient:
 # ASCII flow renderer
 # ---------------------------------------------------------------------------
 
-def render_ascii(handler_name: str, entries: list[dict]) -> str:
+def render_ascii(handler_name: str, entries: list[dict], client: CUPIClient) -> str:
     B = COLORS_ANSI["bold"]
     D = COLORS_ANSI["dim"]
     R = COLORS_ANSI["reset"]
 
     lines = []
     width = 60
-    bar = "─" * width
 
     lines.append(f"\n{B}{'─'*width}{R}")
     lines.append(f"{B}  CALL FLOW: {handler_name}{R}")
@@ -122,8 +151,6 @@ def render_ascii(handler_name: str, entries: list[dict]) -> str:
         lines.append(f"        {D}(no active menu keys configured){R}\n")
         return "\n".join(lines)
 
-    # Branch lines
-    keys_str = "  ┌" + "".join(f"───[{e.get('TouchtoneKey','?')}]─" for e in active) + "┐"
     lines.append(f"  ┌{'─'*56}┐")
     lines.append(f"  │{'Keys: ' + ', '.join(str(e.get('TouchtoneKey','?')) for e in active):^56}│")
     lines.append(f"  └{'─'*27}┬{'─'*27}┘")
@@ -137,15 +164,28 @@ def render_ascii(handler_name: str, entries: list[dict]) -> str:
         color = COLORS_ANSI.get(action_code, "")
 
         dest_parts = []
-        if entry.get("TransferNumber"):
-            dest_parts.append(f"Number: {entry['TransferNumber']}")
-        if entry.get("TargetHandlerObjectId"):
-            dest_parts.append(f"Handler OID: {entry['TargetHandlerObjectId'][:16]}…")
-        if entry.get("TargetConversation"):
-            dest_parts.append(f"Conversation: {entry['TargetConversation']}")
-        dest = ", ".join(dest_parts) if dest_parts else ""
 
+        if action_code == "2":
+            # Go to handler — resolve the target handler name
+            target_oid = entry.get("TargetHandlerObjectId", "")
+            if target_oid:
+                target_name = client.get_handler_name(target_oid)
+                dest_parts.append(f"Handler: {target_name}")
+            if entry.get("TransferNumber"):
+                dest_parts.append(f"Ext: {entry['TransferNumber']}")
+        elif action_code == "7":
+            # Transfer to alternate extension
+            if entry.get("TransferNumber"):
+                dest_parts.append(f"Ext: {entry['TransferNumber']}")
+        else:
+            if entry.get("TransferNumber"):
+                dest_parts.append(f"Number: {entry['TransferNumber']}")
+            if entry.get("TargetConversation"):
+                dest_parts.append(f"Conversation: {entry['TargetConversation']}")
+
+        dest = ", ".join(dest_parts) if dest_parts else ""
         locked = " [locked]" if entry.get("Locked") == "true" else ""
+
         lines.append(f"  Press [{B}{key}{R}]  →  {color}{action_label}{R}{D}{locked}{R}")
         if dest:
             lines.append(f"           {D}└─ {dest}{R}")
@@ -195,7 +235,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .action-take   {{ background: #f0fdf4; border-color: #86efac; color: #166534; }}
   .action-goto   {{ background: #eff6ff; border-color: #93c5fd; color: #1e40af; }}
   .action-xfer   {{ background: #fffbeb; border-color: #fcd34d; color: #92400e; }}
-  .action-hangup {{ background: #fef2f2; border-color: #fca5a5; color: #991b1b; }}
   .action-other  {{ background: #f9fafb; border-color: #e5e7eb; color: #374151; }}
   .ignored {{ margin-top: 1.5rem; font-size: 0.8rem; color: #9ca3af; text-align: center; }}
   .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 2.5rem;
@@ -228,8 +267,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <strong style="align-self:center">Legend:</strong>
   <div class="legend-item"><div class="legend-dot" style="background:#86efac"></div> Take message</div>
   <div class="legend-item"><div class="legend-dot" style="background:#93c5fd"></div> Go to handler / conversation</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#fcd34d"></div> Transfer to number</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#fca5a5"></div> Hang up</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#fcd34d"></div> Transfer</div>
   <div class="legend-item"><div class="legend-dot" style="background:#e5e7eb"></div> Other</div>
 </div>
 
@@ -243,11 +281,11 @@ ACTION_CSS = {
     "2": "action-goto",
     "5": "action-xfer",
     "6": "action-goto",
-    "7": "action-hangup",
+    "7": "action-xfer",
 }
 
 
-def render_html(handler_name: str, entries: list[dict], host: str) -> str:
+def render_html(handler_name: str, entries: list[dict], host: str, client: CUPIClient) -> str:
     active = [e for e in entries if e.get("Action") not in ("0", None)]
     ignored = [e for e in entries if e.get("Action") == "0"]
 
@@ -259,14 +297,23 @@ def render_html(handler_name: str, entries: list[dict], host: str) -> str:
         css = ACTION_CSS.get(action_code, "action-other")
 
         dest_parts = []
-        if entry.get("TransferNumber"):
-            dest_parts.append(f"→ {entry['TransferNumber']}")
-        if entry.get("TargetConversation"):
-            dest_parts.append(entry["TargetConversation"])
-        if entry.get("TargetHandlerObjectId"):
-            dest_parts.append(f"OID: {entry['TargetHandlerObjectId'][:20]}")
-        dest = "<br>".join(dest_parts)
+        if action_code == "2":
+            target_oid = entry.get("TargetHandlerObjectId", "")
+            if target_oid:
+                target_name = client.get_handler_name(target_oid)
+                dest_parts.append(f"Handler: {target_name}")
+            if entry.get("TransferNumber"):
+                dest_parts.append(f"Ext: {entry['TransferNumber']}")
+        elif action_code == "7":
+            if entry.get("TransferNumber"):
+                dest_parts.append(f"Ext: {entry['TransferNumber']}")
+        else:
+            if entry.get("TransferNumber"):
+                dest_parts.append(f"→ {entry['TransferNumber']}")
+            if entry.get("TargetConversation"):
+                dest_parts.append(entry["TargetConversation"])
 
+        dest = "<br>".join(dest_parts)
         locked = "<div class='locked'>🔒 Locked</div>" if entry.get("Locked") == "true" else ""
         dest_html = f"<div class='dest'>{dest}</div>" if dest else ""
 
@@ -363,9 +410,9 @@ def main():
     if args.output == "json":
         output = json.dumps(entries, indent=2)
     elif args.output == "html":
-        output = render_html(handler_name, entries, args.host)
+        output = render_html(handler_name, entries, args.host, client)
     else:
-        output = render_ascii(handler_name, entries)
+        output = render_ascii(handler_name, entries, client)
 
     if args.out_file:
         Path(args.out_file).write_text(output, encoding="utf-8")
