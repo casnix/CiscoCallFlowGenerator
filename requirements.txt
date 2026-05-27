@@ -1,6 +1,2 @@
-
-getpass
-pathlib
 urllib3
-argparse
 requests
