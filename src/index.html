@@ -151,7 +151,28 @@ button.full { width: 100%; }
 /* ── Handler list ── */
 #handler-section { display: none; }
 .handler-count { font-size: 11px; color: var(--text2); margin-bottom: 8px; font-family: var(--mono); }
-#handler-select { height: 180px; }
+#handler-select {
+  height: 180px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 4px;
+  font-size: 13px;
+  font-family: var(--mono);
+  color: var(--text);
+  outline: none;
+  width: 100%;
+  transition: border-color .15s;
+}
+#handler-select:focus { border-color: var(--accent); }
+#handler-select option {
+  background: var(--bg3);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 4px 6px;
+}
+#handler-select option:checked { background: var(--accent2); color: #fff; }
 
 /* ── Flow area ── */
 .empty-state {

@@ -138,10 +138,12 @@ def get_flow(
     for oid in target_oids:
         try:
             hdata = cupi_get(host, user, password, f"/handlers/callhandlers/{oid}")
-            name = hdata.get("DisplayName") or \
-                   normalise_list(hdata, "Callhandler", "CallHandler")[0].get("DisplayName", oid) \
-                   if normalise_list(hdata, "Callhandler", "CallHandler") else oid
-            handler_names[oid] = name
+            # Single-handler responses return the object directly at the top level
+            name = hdata.get("DisplayName")
+            if not name:
+                nested = normalise_list(hdata, "Callhandler", "CallHandler")
+                name = nested[0].get("DisplayName") if nested else None
+            handler_names[oid] = name or oid
         except Exception:
             handler_names[oid] = oid
 
@@ -181,4 +183,3 @@ def get_flow(
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
-    
