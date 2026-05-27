@@ -14,18 +14,14 @@ Requirements:
     pip install requests
 """
 
-import argparse
-import json
 import sys
+import json
+import getpass
 import urllib3
-from getpass import getpass
-from pathlib import Path
+import argparse
+import requests
 
-try:
-    import requests
-except ImportError:
-    print("ERROR: 'requests' library not found. Run: pip install requests")
-    sys.exit(1)
+from pathlib import Path
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
