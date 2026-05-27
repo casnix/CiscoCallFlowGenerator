@@ -347,6 +347,7 @@ def render_html(handler_name: str, entries: list[dict], host: str, client: CUPIC
 # ---------------------------------------------------------------------------
 
 def pick_handler(handlers: list[dict]) -> dict:
+    handlers = sorted(handlers, key=lambda h: h.get("DisplayName", "").lower())
     print(f"\nFound {len(handlers)} call handler(s):\n")
     for i, h in enumerate(handlers, 1):
         print(f"  {i:>3}.  {h.get('DisplayName', 'Unnamed')}")
