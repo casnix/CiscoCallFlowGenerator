@@ -16,11 +16,11 @@ Requirements:
 
 import sys
 import json
-import getpass
 import urllib3
 import argparse
 import requests
 
+from getpass import getpass
 from pathlib import Path
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
