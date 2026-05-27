@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CUPI Call Flow Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #0d0f12;
+  --bg2:       #13171c;
+  --bg3:       #1a1f26;
+  --border:    #252c36;
+  --border2:   #2f3844;
+  --text:      #d4dce8;
+  --text2:     #6b7f96;
+  --text3:     #3d4f63;
+  --accent:    #3b82f6;
+  --accent2:   #1d4ed8;
+  --green:     #22c55e;
+  --green-bg:  #0d2818;
+  --green-bd:  #166534;
+  --blue:      #60a5fa;
+  --blue-bg:   #0d1f3c;
+  --blue-bd:   #1e40af;
+  --amber:     #fbbf24;
+  --amber-bg:  #2d1f06;
+  --amber-bd:  #92400e;
+  --gray-bg:   #1a1f26;
+  --gray-bd:   #2f3844;
+  --red:       #f87171;
+  --red-bg:    #2d0f0f;
+  --red-bd:    #7f1d1d;
+  --mono:      'IBM Plex Mono', monospace;
+  --sans:      'IBM Plex Sans', sans-serif;
+  --r:         8px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ── Header ── */
+header {
+  border-bottom: 1px solid var(--border);
+  padding: 18px 28px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg2);
+}
+.logo {
+  width: 32px; height: 32px;
+  background: var(--accent2);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-size: 13px; font-weight: 600;
+  color: #fff; flex-shrink: 0;
+}
+header h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+header p  { font-size: 12px; color: var(--text2); margin-top: 1px; }
+
+/* ── Layout ── */
+.layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--bg2);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+.main {
+  padding: 28px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ── Form ── */
+.section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text3);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.field { margin-bottom: 10px; }
+.field label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 5px; }
+.field input, .field select {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--mono);
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s;
+}
+.field input:focus, .field select:focus { border-color: var(--accent); }
+.field input::placeholder { color: var(--text3); }
+select option { background: var(--bg3); }
+
+btn, button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--r);
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  white-space: nowrap;
+}
+button:hover { background: var(--border); }
+button.primary {
+  background: var(--accent2);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+button.primary:hover { background: var(--accent); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button.full { width: 100%; }
+
+.err {
+  font-size: 12px;
+  color: var(--red);
+  background: var(--red-bg);
+  border: 1px solid var(--red-bd);
+  border-radius: var(--r);
+  padding: 8px 10px;
+  display: none;
+}
+.err.show { display: block; }
+
+/* ── Handler list ── */
+#handler-section { display: none; }
+.handler-count { font-size: 11px; color: var(--text2); margin-bottom: 8px; font-family: var(--mono); }
+#handler-select { height: 180px; }
+
+/* ── Flow area ── */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text3);
+  font-size: 13px;
+  text-align: center;
+}
+.empty-icon {
+  width: 48px; height: 48px;
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+/* ── Flow chart ── */
+#flow-wrap { display: none; }
+.flow-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.flow-header h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+.flow-header .meta { font-size: 12px; color: var(--text2); font-family: var(--mono); }
+
+.flow-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 8px 0;
+}
+.root-node {
+  background: linear-gradient(135deg, var(--accent2), #2563eb);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 14px 32px;
+  text-align: center;
+  box-shadow: 0 0 24px rgba(59,130,246,.2);
+  min-width: 180px;
+}
+.root-node .name { font-size: 15px; font-weight: 600; color: #fff; }
+.root-node .sub  { font-size: 11px; color: rgba(255,255,255,.6); margin-top: 3px; font-family: var(--mono); }
+
+.v-line { width: 1px; height: 36px; background: var(--border2); }
+
+.branches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.branch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  animation: fadeUp .3s ease both;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.key-pill {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-size: 13px; font-weight: 600;
+  color: var(--text);
+  z-index: 1;
+}
+.b-line { width: 1px; height: 18px; background: var(--border2); }
+
+.action-card {
+  border-radius: 10px;
+  padding: 11px 14px;
+  min-width: 140px;
+  max-width: 170px;
+  text-align: center;
+  border: 1px solid var(--gray-bd);
+  background: var(--gray-bg);
+  transition: border-color .15s, transform .15s;
+  cursor: default;
+}
+.action-card:hover { transform: translateY(-2px); }
+.action-card .a-label { font-size: 13px; font-weight: 600; }
+.action-card .a-dest  { font-size: 11px; margin-top: 5px; line-height: 1.4; word-break: break-word; opacity: .75; font-family: var(--mono); }
+.action-card .a-lock  { font-size: 10px; margin-top: 4px; opacity: .45; }
+
+.ac-take  { background: var(--green-bg);  border-color: var(--green-bd);  color: var(--green); }
+.ac-goto  { background: var(--blue-bg);   border-color: var(--blue-bd);   color: var(--blue); }
+.ac-xfer  { background: var(--amber-bg);  border-color: var(--amber-bd);  color: var(--amber); }
+.ac-other { background: var(--gray-bg);   border-color: var(--gray-bd);   color: var(--text2); }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  font-size: 11px;
+  color: var(--text2);
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-dot  { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+/* ── Spinner ── */
+.spinner {
+  width: 18px; height: 18px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  display: none;
+}
+.spinner.show { display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">UC</div>
+  <div>
+    <h1>CUPI Call Flow Viewer</h1>
+    <p>Cisco Unity Connection</p>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+
+    <div>
+      <div class="section-label">Connection</div>
+      <div class="field">
+        <label>Server hostname / IP</label>
+        <input id="host" type="text" placeholder="cuc.company.com" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>Username</label>
+        <input id="user" type="text" placeholder="admin" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="pass" type="password" placeholder="••••••••" autocomplete="off">
+      </div>
+      <button class="primary full" id="btn-connect" onclick="loadHandlers()">
+        <span id="connect-spinner" class="spinner"></span>
+        Connect
+      </button>
+      <div id="err-conn" class="err" style="margin-top:8px"></div>
+    </div>
+
+    <div id="handler-section">
+      <div class="section-label">Call handlers</div>
+      <div id="handler-count" class="handler-count"></div>
+      <div class="field">
+        <label>Search</label>
+        <input id="handler-search" type="text" placeholder="Filter handlers…" oninput="filterHandlers()">
+      </div>
+      <select id="handler-select" size="8" onchange="loadFlow()"></select>
+      <div id="err-handler" class="err" style="margin-top:8px"></div>
+    </div>
+
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">⬡</div>
+      <div>Connect to a Unity Connection server<br>to visualize call handler flows</div>
+    </div>
+
+    <div id="flow-wrap">
+      <div class="flow-header">
+        <h2 id="flow-title"></h2>
+        <span class="meta" id="flow-meta"></span>
+        <span id="flow-spinner" class="spinner" style="margin-left:auto"></span>
+      </div>
+      <div class="flow-diagram" id="flow-diagram"></div>
+      <div class="legend" style="margin-top:24px">
+        <strong style="color:var(--text);align-self:center;font-size:11px">Legend</strong>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--green-bd)"></div>Take message</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--blue-bd)"></div>Go to handler / conversation</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--amber-bd)"></div>Transfer</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--gray-bd)"></div>Other</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+let allHandlers = [];
+
+function qs(id) { return document.getElementById(id); }
+function showErr(id, msg) {
+  const el = qs(id);
+  el.textContent = msg;
+  el.classList.toggle('show', !!msg);
+}
+
+async function loadHandlers() {
+  const host = qs('host').value.trim();
+  const user = qs('user').value.trim();
+  const pass = qs('pass').value;
+  if (!host || !user || !pass) { showErr('err-conn', 'Please fill in all connection fields.'); return; }
+
+  showErr('err-conn', '');
+  qs('btn-connect').disabled = true;
+  qs('connect-spinner').classList.add('show');
+
+  try {
+    const params = new URLSearchParams({ host, user, password: pass });
+    const resp = await fetch(`/api/handlers?${params}`);
+    const data = await resp.json();
+    if (!resp.ok) { showErr('err-conn', data.detail || 'Connection failed.'); return; }
+
+    allHandlers = data;
+    renderHandlerList(data);
+    qs('handler-section').style.display = 'block';
+    qs('handler-count').textContent = `${data.length} handler(s) found`;
+  } catch(e) {
+    showErr('err-conn', 'Could not reach the backend — is uvicorn running?');
+  } finally {
+    qs('btn-connect').disabled = false;
+    qs('connect-spinner').classList.remove('show');
+  }
+}
+
+function renderHandlerList(handlers) {
+  const sel = qs('handler-select');
+  sel.innerHTML = '';
+  handlers.forEach(h => {
+    const opt = document.createElement('option');
+    opt.value = h.objectId;
+    opt.textContent = h.displayName;
+    sel.appendChild(opt);
+  });
+}
+
+function filterHandlers() {
+  const q = qs('handler-search').value.toLowerCase();
+  const filtered = allHandlers.filter(h => h.displayName.toLowerCase().includes(q));
+  renderHandlerList(filtered);
+}
+
+async function loadFlow() {
+  const sel = qs('handler-select');
+  const oid = sel.value;
+  const name = sel.options[sel.selectedIndex]?.text || '';
+  if (!oid) return;
+
+  showErr('err-handler', '');
+  qs('flow-spinner').classList.add('show');
+  qs('flow-title').textContent = name;
+  qs('flow-meta').textContent = '';
+  qs('empty-state').style.display = 'none';
+  qs('flow-wrap').style.display = 'block';
+  qs('flow-diagram').innerHTML = '';
+
+  const host = qs('host').value.trim();
+  const user = qs('user').value.trim();
+  const pass = qs('pass').value;
+
+  try {
+    const params = new URLSearchParams({ host, user, password: pass, handler_oid: oid });
+    const resp = await fetch(`/api/flow?${params}`);
+    const data = await resp.json();
+    if (!resp.ok) { showErr('err-handler', data.detail || 'Failed to load flow.'); return; }
+
+    const active = data.filter(e => e.action !== '0');
+    qs('flow-meta').textContent = `${active.length} active key(s)`;
+    renderFlowDiagram(name, data);
+  } catch(e) {
+    showErr('err-handler', 'Error loading flow data.');
+  } finally {
+    qs('flow-spinner').classList.remove('show');
+  }
+}
+
+function actionClass(code) {
+  if (code === '1') return 'ac-take';
+  if (code === '2' || code === '6') return 'ac-goto';
+  if (code === '5' || code === '7') return 'ac-xfer';
+  return 'ac-other';
+}
+
+function renderFlowDiagram(handlerName, entries) {
+  const diagram = qs('flow-diagram');
+  diagram.innerHTML = '';
+
+  // Root node
+  const root = document.createElement('div');
+  root.className = 'root-node';
+  root.innerHTML = `<div class="name">${esc(handlerName)}</div><div class="sub">call handler</div>`;
+  diagram.appendChild(root);
+
+  const vline = document.createElement('div');
+  vline.className = 'v-line';
+  diagram.appendChild(vline);
+
+  const active = entries.filter(e => e.action !== '0');
+  const ignored = entries.filter(e => e.action === '0');
+
+  if (!active.length) {
+    const msg = document.createElement('div');
+    msg.style.cssText = 'color:var(--text3);font-size:13px;padding:20px';
+    msg.textContent = 'No active menu keys configured.';
+    diagram.appendChild(msg);
+    return;
+  }
+
+  const branches = document.createElement('div');
+  branches.className = 'branches';
+
+  active.forEach((entry, i) => {
+    const branch = document.createElement('div');
+    branch.className = 'branch';
+    branch.style.animationDelay = `${i * 40}ms`;
+
+    // Key badge
+    const pill = document.createElement('div');
+    pill.className = 'key-pill';
+    pill.textContent = entry.key;
+
+    const bl = document.createElement('div');
+    bl.className = 'b-line';
+
+    // Action card
+    const card = document.createElement('div');
+    card.className = `action-card ${actionClass(entry.action)}`;
+
+    const label = document.createElement('div');
+    label.className = 'a-label';
+    label.textContent = entry.actionLabel;
+    card.appendChild(label);
+
+    // Destination detail
+    const destLines = [];
+    if (entry.action === '2') {
+      if (entry.targetHandlerName) destLines.push(entry.targetHandlerName);
+      if (entry.transferNumber) destLines.push(`ext ${entry.transferNumber}`);
+    } else if (entry.action === '7') {
+      if (entry.transferNumber) destLines.push(`ext ${entry.transferNumber}`);
+    } else if (entry.action === '5') {
+      if (entry.transferNumber) destLines.push(entry.transferNumber);
+    } else if (entry.action === '6') {
+      if (entry.targetConversation) destLines.push(entry.targetConversation);
+    }
+
+    if (destLines.length) {
+      const dest = document.createElement('div');
+      dest.className = 'a-dest';
+      dest.textContent = destLines.join(' · ');
+      card.appendChild(dest);
+    }
+
+    if (entry.locked) {
+      const lock = document.createElement('div');
+      lock.className = 'a-lock';
+      lock.textContent = '🔒 locked';
+      card.appendChild(lock);
+    }
+
+    branch.appendChild(pill);
+    branch.appendChild(bl);
+    branch.appendChild(card);
+    branches.appendChild(branch);
+  });
+
+  diagram.appendChild(branches);
+
+  if (ignored.length) {
+    const ig = document.createElement('div');
+    ig.style.cssText = 'font-size:11px;color:var(--text3);margin-top:16px;font-family:var(--mono)';
+    ig.textContent = `ignored keys: ${ignored.map(e => e.key).join(', ')}`;
+    diagram.appendChild(ig);
+  }
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Allow Enter key to trigger connect
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.activeElement?.closest('.sidebar')) {
+    const sel = qs('handler-select');
+    if (document.activeElement === sel) return;
+    loadHandlers();
+  }
+});
+</script>
+</body>
+</html>
