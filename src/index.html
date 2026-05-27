@@ -274,6 +274,9 @@ button.full { width: 100%; }
   cursor: default;
 }
 .action-card:hover { transform: translateY(-2px); }
+.action-card.clickable { cursor: pointer; }
+.action-card.clickable:hover { transform: translateY(-2px) scale(1.02); }
+.action-card .a-arrow { font-size: 11px; margin-top: 5px; opacity: .5; }
 .action-card .a-label { font-size: 13px; font-weight: 600; }
 .action-card .a-dest  { font-size: 11px; margin-top: 5px; line-height: 1.4; word-break: break-word; opacity: .75; font-family: var(--mono); }
 .action-card .a-lock  { font-size: 10px; margin-top: 4px; opacity: .45; }
@@ -374,9 +377,14 @@ button.full { width: 100%; }
 
     <div id="flow-wrap">
       <div class="flow-header">
-        <h2 id="flow-title"></h2>
-        <span class="meta" id="flow-meta"></span>
-        <span id="flow-spinner" class="spinner" style="margin-left:auto"></span>
+        <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+          <div id="breadcrumb" style="display:none;font-size:11px;font-family:var(--mono);color:var(--text2);display:flex;align-items:center;flex-wrap:wrap;gap:4px"></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <h2 id="flow-title"></h2>
+            <span class="meta" id="flow-meta"></span>
+            <span id="flow-spinner" class="spinner" style="margin-left:auto"></span>
+          </div>
+        </div>
       </div>
       <div class="flow-diagram" id="flow-diagram"></div>
       <div class="legend" style="margin-top:24px">
@@ -393,12 +401,66 @@ button.full { width: 100%; }
 
 <script>
 let allHandlers = [];
+let navHistory = []; // [{oid, name}]
 
 function qs(id) { return document.getElementById(id); }
 function showErr(id, msg) {
   const el = qs(id);
   el.textContent = msg;
   el.classList.toggle('show', !!msg);
+}
+
+function renderBreadcrumb() {
+  const bc = qs('breadcrumb');
+  if (navHistory.length <= 1) { bc.style.display = 'none'; return; }
+  bc.style.display = 'flex';
+  bc.innerHTML = '';
+  navHistory.forEach((item, i) => {
+    if (i > 0) {
+      const sep = document.createElement('span');
+      sep.textContent = '›';
+      sep.style.color = 'var(--text3)';
+      bc.appendChild(sep);
+    }
+    if (i < navHistory.length - 1) {
+      const link = document.createElement('span');
+      link.textContent = item.name;
+      link.style.cssText = 'cursor:pointer;color:var(--accent);text-decoration:underline;text-underline-offset:2px';
+      link.onclick = () => navigateToHistory(i);
+      bc.appendChild(link);
+    } else {
+      const cur = document.createElement('span');
+      cur.textContent = item.name;
+      cur.style.color = 'var(--text)';
+      bc.appendChild(cur);
+    }
+  });
+}
+
+async function navigateToHistory(index) {
+  navHistory = navHistory.slice(0, index + 1);
+  const item = navHistory[index];
+  syncSidebarSelection(item.oid);
+  await loadFlowForOid(item.oid, item.name, false);
+}
+
+async function navigateToHandler(oid, name) {
+  navHistory.push({ oid, name });
+  syncSidebarSelection(oid);
+  await loadFlowForOid(oid, name, false);
+}
+
+function syncSidebarSelection(oid) {
+  const sel = qs('handler-select');
+  for (const opt of sel.options) {
+    if (opt.value === oid) { opt.selected = true; return; }
+  }
+  // Not in current filtered list — reset filter to show all and try again
+  qs('handler-search').value = '';
+  renderHandlerList(allHandlers);
+  for (const opt of qs('handler-select').options) {
+    if (opt.value === oid) { opt.selected = true; return; }
+  }
 }
 
 async function loadHandlers() {
@@ -408,6 +470,7 @@ async function loadHandlers() {
   if (!host || !user || !pass) { showErr('err-conn', 'Please fill in all connection fields.'); return; }
 
   showErr('err-conn', '');
+  navHistory = [];
   qs('btn-connect').disabled = true;
   qs('connect-spinner').classList.add('show');
 
@@ -451,7 +514,11 @@ async function loadFlow() {
   const oid = sel.value;
   const name = sel.options[sel.selectedIndex]?.text || '';
   if (!oid) return;
+  navHistory = [{ oid, name }];
+  await loadFlowForOid(oid, name, false);
+}
 
+async function loadFlowForOid(oid, name, append) {
   showErr('err-handler', '');
   qs('flow-spinner').classList.add('show');
   qs('flow-title').textContent = name;
@@ -459,6 +526,7 @@ async function loadFlow() {
   qs('empty-state').style.display = 'none';
   qs('flow-wrap').style.display = 'block';
   qs('flow-diagram').innerHTML = '';
+  renderBreadcrumb();
 
   const host = qs('host').value.trim();
   const user = qs('user').value.trim();
@@ -535,7 +603,12 @@ function renderFlowDiagram(handlerName, entries, extension) {
 
     // Action card
     const card = document.createElement('div');
-    card.className = `action-card ${actionClass(entry.action)}`;
+    const isGoTo = entry.action === '2' && entry.targetHandlerOid;
+    card.className = `action-card ${actionClass(entry.action)}${isGoTo ? ' clickable' : ''}`;
+    if (isGoTo) {
+      card.title = `Click to open: ${entry.targetHandlerName || entry.targetHandlerOid}`;
+      card.onclick = () => navigateToHandler(entry.targetHandlerOid, entry.targetHandlerName || entry.targetHandlerOid);
+    }
 
     const label = document.createElement('div');
     label.className = 'a-label';
@@ -567,6 +640,13 @@ function renderFlowDiagram(handlerName, entries, extension) {
       lock.className = 'a-lock';
       lock.textContent = '🔒 locked';
       card.appendChild(lock);
+    }
+
+    if (isGoTo) {
+      const arrow = document.createElement('div');
+      arrow.className = 'a-arrow';
+      arrow.textContent = 'click to open →';
+      card.appendChild(arrow);
     }
 
     branch.appendChild(pill);
